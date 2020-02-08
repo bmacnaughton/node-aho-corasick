@@ -4,4 +4,5 @@
 
 fastMatch = require("fast-match");
 
-console.log("Wasm returned " + fastMatch.test());
+let matcher = fastMatch.Matcher.new(["Hello", "Newton", "llo"]);
+console.log(matcher.run("Hello, World"));
