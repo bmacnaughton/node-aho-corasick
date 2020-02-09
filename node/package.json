@@ -19,6 +19,7 @@
   "author": "Charly Castes",
   "license": "ISC",
   "dependencies": {
+    "ahocorasick": "^1.0.2",
     "fast-match": "file:../pkg"
   },
   "devDependencies": {}

@@ -12,20 +12,16 @@ use wasm_bindgen::prelude::*;
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-#[wasm_bindgen]
-extern "C" {
-    fn alert(s: &str);
-}
+// #[wasm_bindgen]
+// extern "C" {
+//     // Use `js_namespace` here to bind `console.log(..)` instead of just
+//     // `log(..)`
+//     #[wasm_bindgen(js_namespace = console)]
+//     fn log(s: &str);
 
-#[wasm_bindgen]
-pub fn greet() {
-    alert("Hello, fast-match!");
-}
-
-#[wasm_bindgen]
-pub fn test() -> u32 {
-    return 14;
-}
+//     #[wasm_bindgen(js_namespace = console, js_name = log)]
+//     fn log_u32(a: usize);
+// }
 
 #[wasm_bindgen]
 pub struct Matcher {
@@ -61,6 +57,7 @@ impl Matcher {
     }
 
     pub fn run(&self, string: String) -> js_sys::Array {
+        utils::set_panic_hook(); // Improve panic reporting
         let mut state = 0;
         let results = js_sys::Array::new();
         for c in string.chars() {
@@ -84,12 +81,6 @@ impl Matcher {
         self.g[next_state][c_id]
     }
 }
-
-// fn main() {
-//     let words = vec!["hello", "newton", "ll", "llo"];
-//     let matcher = Matcher::new(words);
-//     matcher.run("hello, world!");
-// }
 
 // Build the automaton
 fn build(
@@ -117,7 +108,7 @@ fn build(
         out[current_state].push(word.to_string());
     }
 
-    let mut queue: Vec<usize> = Vec::new();
+    let mut queue: std::collections::VecDeque<usize> = std::collections::VecDeque::new();
     let mut new_words: Vec<String> = Vec::new();
 
     for c in g[0].iter_mut() {
@@ -125,12 +116,12 @@ fn build(
             *c = 0;
         } else {
             f[*c] = 0;
-            queue.push(*c);
+            queue.push_back(*c);
         }
     }
 
     loop {
-        let state = match queue.pop() {
+        let state = match queue.pop_front() {
             Some(s) => s,
             None => break,
         };
@@ -139,7 +130,6 @@ fn build(
             let next = g[state][c];
             if next != UNDEFINED {
                 let mut failure = f[state];
-
                 while g[failure][c] == UNDEFINED {
                     failure = f[failure];
                 }
@@ -154,7 +144,7 @@ fn build(
                     }
                     std::mem::swap(&mut out[failure], &mut new_words);
                 }
-                queue.push(next);
+                queue.push_back(next);
             }
         }
     }
@@ -164,20 +154,3 @@ fn build(
 fn char_id(c: char) -> usize {
     c as usize
 }
-
-// #[cfg(test)]
-// mod tests {
-//     use crate::Matcher;
-
-//     #[test]
-//     fn do_match() {
-//         let words = vec!["hello", "k", "llo"];
-//         let matcher = Matcher::new(words);
-//         let results = matcher.run("hello, world!");
-//         assert_eq!(results.len(), 2);
-//         assert!(
-//             (results[0] == "hello" && results[1] == "llo")
-//                 || (results[1] == "hello" && results[0] == "llo")
-//         )
-//     }
-// }
