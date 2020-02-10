@@ -4,6 +4,24 @@ real    0m2.571s
 user    0m2.593s
 sys     0m0.041s
 
+optimized mode, 50 batch
+
+real    0m10.768s
+user    0m10.838s
+sys     0m0.075s
+
+optimized + u16, 50 batch
+
+real    0m9.420s
+user    0m9.469s
+sys     0m0.056s
+
+js version, 50 batch
+
+real    0m19.304s
+user    0m19.238s
+sys     0m0.090s
+
 Statistical profiling result from isolate-0x3992aa0-6407-v8.log, (9741 ticks, 874 unaccounted, 0 excluded).
 
  [Shared libraries]:

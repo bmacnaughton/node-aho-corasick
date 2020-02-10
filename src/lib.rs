@@ -1,5 +1,5 @@
 const MAX_CHARS: usize = 127; // nb_chars + 1, contains all alphanumeric characters and most punctuation
-const UNDEFINED: usize = 0xD800; // A reserved value in UTF-16
+const UNDEFINED: u16 = 0xD800; // A reserved value in UTF-16
 
 use js_sys;
 use wasm_bindgen::prelude::*;
@@ -12,8 +12,8 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen]
 pub struct Matcher {
-    g: Vec<[usize; MAX_CHARS]>,
-    f: Vec<usize>,
+    g: Vec<[u16; MAX_CHARS]>,
+    f: Vec<u16>,
     out: Vec<Vec<js_sys::JsString>>,
 }
 
@@ -51,17 +51,17 @@ impl Matcher {
         let c_id = c as usize;
 
         while self.g[next_state][c_id] == UNDEFINED {
-            next_state = self.f[next_state];
+            next_state = self.f[next_state] as usize;
         }
 
-        self.g[next_state][c_id]
+        self.g[next_state][c_id] as usize
     }
 }
 
 // Build the automaton
 fn build(
-    g: &mut Vec<[usize; MAX_CHARS]>,
-    f: &mut Vec<usize>,
+    g: &mut Vec<[u16; MAX_CHARS]>,
+    f: &mut Vec<u16>,
     out: &mut Vec<Vec<js_sys::JsString>>,
     words: js_sys::Array,
 ) {
@@ -81,7 +81,7 @@ fn build(
                         out.push(Vec::<js_sys::JsString>::new());
                         g[current_state][c_id] = state;
                     }
-                    current_state = g[current_state][c_id];
+                    current_state = g[current_state][c_id] as usize;
                 }
 
                 out[current_state].push(w.clone());
@@ -97,8 +97,8 @@ fn build(
         if *c == UNDEFINED {
             *c = 0;
         } else {
-            f[*c] = 0;
-            queue.push_back(*c);
+            f[*c as usize] = 0;
+            queue.push_back(*c as usize);
         }
     }
 
@@ -111,22 +111,23 @@ fn build(
         for c in 0..MAX_CHARS {
             let next = g[state][c];
             if next != UNDEFINED {
-                let mut failure = f[state];
+                let mut failure = f[state] as usize;
                 while g[failure][c] == UNDEFINED {
-                    failure = f[failure];
+                    failure = f[failure] as usize;
                 }
-                failure = g[failure][c];
-                f[next] = failure;
+                f[next as usize] = g[failure][c];
 
-                if failure != next {
+                let n = next as usize;
+                if failure != n {
+                    let f = failure as usize;
                     // Add suffix words matching
-                    std::mem::swap(&mut out[failure], &mut new_words);
+                    std::mem::swap(&mut out[f], &mut new_words);
                     for word in &new_words {
-                        out[next].push(word.clone());
+                        out[n].push(word.clone());
                     }
-                    std::mem::swap(&mut out[failure], &mut new_words);
+                    std::mem::swap(&mut out[f], &mut new_words);
                 }
-                queue.push_back(next);
+                queue.push_back(n);
             }
         }
     }
