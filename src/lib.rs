@@ -1,8 +1,6 @@
 const MAX_CHARS: usize = 127; // nb_chars + 1, contains all alphanumeric characters and most punctuation
 const UNDEFINED: usize = 0xD800; // A reserved value in UTF-16
 
-mod utils;
-
 use js_sys;
 use wasm_bindgen::prelude::*;
 
@@ -11,17 +9,6 @@ use wasm_bindgen::prelude::*;
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
-
-// #[wasm_bindgen]
-// extern "C" {
-//     // Use `js_namespace` here to bind `console.log(..)` instead of just
-//     // `log(..)`
-//     #[wasm_bindgen(js_namespace = console)]
-//     fn log(s: &str);
-
-//     #[wasm_bindgen(js_namespace = console, js_name = log)]
-//     fn log_u32(a: usize);
-// }
 
 #[wasm_bindgen]
 pub struct Matcher {
@@ -33,8 +20,6 @@ pub struct Matcher {
 #[wasm_bindgen]
 impl Matcher {
     pub fn new(words: js_sys::Array) -> Matcher {
-        // utils::set_panic_hook(); // Improve panic reporting
-
         let mut g = vec![[UNDEFINED; MAX_CHARS]];
         let mut f = vec![UNDEFINED];
         let mut out = vec![Vec::<js_sys::JsString>::new()];
@@ -49,7 +34,6 @@ impl Matcher {
     }
 
     pub fn run(&self, string: &js_sys::JsString) -> js_sys::Array {
-        // utils::set_panic_hook(); // Improve panic reporting
         let mut state = 0;
         let results = js_sys::Array::new();
         for c in string.iter() {
@@ -84,7 +68,7 @@ fn build(
     let mut state = 0;
 
     for word in words.iter() {
-        match js_sys::JsString::try_from(&word) {
+        match wasm_bindgen::JsCast::dyn_ref::<js_sys::JsString>(&word) {
             Some(w) => {
                 let mut current_state = 0;
                 for c in w.iter() {
@@ -147,8 +131,3 @@ fn build(
         }
     }
 }
-
-// // Char to id mapping
-// fn char_id(c: char) -> usize {
-//     c as usize
-// }

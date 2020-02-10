@@ -12,7 +12,7 @@ fs.readFile(dataPath, { encoding: "utf-8" }, (err, data) => {
     // Initialize the matcher
     let matcher = fastMatch.Matcher.new(words);
 
-    for (i = 0; i < 30; i++) {
+    for (i = 0; i < 50; i++) {
       for (line of lines) {
         matcher.run(line);
       }
