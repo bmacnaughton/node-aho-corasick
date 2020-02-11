@@ -51,3 +51,11 @@ Results:
 +    2.22%  node     node                 [.] Builtins_CreateTypedArray
 +    2.20%  node     node                 [.] Builtins_CallApiCallback
 ```
+
+Regexp 1 batch:
+
+```
+real    3m29.504s
+user    3m28.918s
+sys     0m0.387s
+```

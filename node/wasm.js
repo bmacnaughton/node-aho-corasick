@@ -19,6 +19,3 @@ fs.readFile(dataPath, { encoding: "utf-8" }, (err, data) => {
     }
   });
 });
-
-// let matcher = fastMatch.Matcher.new(["Hello", "Newton", "llo"]);
-// console.log(matcher.run("Hello, World"));
