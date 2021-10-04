@@ -3,8 +3,6 @@
 #[macro_use]
 extern crate napi_derive;
 
-use std::convert::TryInto;
-use std::slice;
 use std::str;
 use std::string::String;
 
@@ -57,14 +55,15 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
       // this additional space is needed to make alpha case-insensitive. it
       // might be useful to accept two arguments: one case-sensitive, the
       // other case-insensitive. but for now, all text is insensitive.
-      if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' {
+      if ('a'..='z').contains(&c) || ('A'..'Z').contains(&c) {
+      //if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' {
         max_states += 1;
       }
       s.push(pattern_buffer[ix]);
       continue;
     }
     // it's a null, make the string if it's not zero-length.
-    if s.len() > 0 {
+    if !s.is_empty() {
       let pattern = String::from_utf8(s).unwrap_or_default();
       // the maximum number of states is equal to the sum of the pattern
       // lengths + 1 (for the root, or 0, state).
@@ -91,11 +90,11 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
 
   // create the struct we wrap as external data.
   let mut aho = AhoCorasick {
-    patterns: patterns,
-    max_states: max_states,
-    goto: goto,
-    fail: fail,
-    out: out,
+    patterns,
+    max_states,
+    goto,
+    fail,
+    out,
     state: 0,
   };
 
@@ -153,9 +152,11 @@ fn build_automaton(aho: &mut AhoCorasick) -> u16 {
       state = aho.goto[state as usize][byte as usize];
 
       let extra: usize;
-      if byte >= b'a' && byte <= b'z' {
+      if (b'a'..=b'z').contains(&byte) {
+      //if byte >= b'a' && byte <= b'z' {
         extra = (byte - (b'a' - b'A')) as usize;
-      } else if byte >= b'A' && byte <= b'Z' {
+      } else if (b'A'..=b'Z').contains(&byte) {
+      //} else if byte >= b'A' && byte <= b'Z' {
         extra = (byte + (b'a' - b'A')) as usize;
       } else {
         continue;
@@ -191,7 +192,7 @@ fn build_automaton(aho: &mut AhoCorasick) -> u16 {
   }
 
   // work states in the queue
-  while queue.len() > 0 {
+  while !queue.is_empty() {
     let state: usize = queue.remove(0) as usize;
 
     // for the removed state, find the failure for for all characters that
@@ -199,7 +200,7 @@ fn build_automaton(aho: &mut AhoCorasick) -> u16 {
     for ix in 0..MAX_CHARS {
       let byte: usize = ix as usize;
 
-      if (aho.goto[state][byte] == UNDEFINED) {
+      if aho.goto[state][byte] == UNDEFINED {
         continue;
       }
 
@@ -233,7 +234,7 @@ fn suspicious(ctx: CallContext) -> Result<JsBoolean> {
   let this: JsObject = ctx.this_unchecked();
   let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
 
-  for &b in bytes.into_iter() {
+  for &b in bytes.iter() {
     let mut byte: u8 = b;
     // for bytes larger than the max to fail by setting to an
     // impossible value.
@@ -247,7 +248,7 @@ fn suspicious(ctx: CallContext) -> Result<JsBoolean> {
 
     aho.state = aho.goto[next as usize][byte as usize];
 
-    if aho.out[aho.state as usize].len() > 0 {
+    if !aho.out[aho.state as usize].is_empty() {
       return ctx.env.get_boolean(true);
     }
   }
@@ -257,7 +258,6 @@ fn suspicious(ctx: CallContext) -> Result<JsBoolean> {
 
 #[js_function(1)]
 fn reset(ctx: CallContext) -> Result<JsUndefined> {
-  let bytes = &mut ctx.get::<JsBuffer>(0)?.into_value()?;
   let this: JsObject = ctx.this_unchecked();
   let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
   aho.state = 0;
