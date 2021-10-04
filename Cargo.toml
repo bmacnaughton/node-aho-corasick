@@ -1,35 +1,24 @@
 [package]
-name = "fast_match"
+name = "aho-corasick"
 version = "0.1.0"
-authors = ["CharlyCst <charly.castes@epfl.ch>"]
+authors = ["Bruce A. MacNaughton <bmacnaughton@gmail.com"]
 edition = "2018"
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [features]
-default = ["console_error_panic_hook"]
+#default = ["console_error_panic_hook"]
 
 [dependencies]
-wasm-bindgen = "0.2"
-js-sys = "0.3.35"
+napi = "1"
+napi-derive = "1"
 
-# The `console_error_panic_hook` crate provides better debugging of panics by
-# logging them with `console.error`. This is great for development, but requires
-# all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
-# code size when deploying.
-console_error_panic_hook = { version = "0.1.1", optional = true }
+[target.'cfg(all(any(windows, unix), target_arch = "x86_64", not(target_env = "musl")))'.dependencies]
+mimalloc = {version = "0.1"}
 
-# `wee_alloc` is a tiny allocator for wasm that is only ~1K in code size
-# compared to the default allocator's ~10K. It is slower than the default
-# allocator, however.
-#
-# Unfortunately, `wee_alloc` requires nightly Rust when targeting wasm for now.
-wee_alloc = { version = "0.4.2", optional = true }
-
-[dev-dependencies]
-wasm-bindgen-test = "0.2"
+[build-dependencies]
+napi-build = "1"
 
 [profile.release]
-# Tell `rustc` to optimize for small code size.
-opt-level = "s"
+lto = true
