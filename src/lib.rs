@@ -8,7 +8,8 @@ use std::string::String;
 
 use napi::{
   Env, CallContext, Property, Result,
-  JsUndefined, JsBuffer, JsObject, JsNumber, JsBoolean,
+  JsUndefined, JsBuffer, JsObject, JsBoolean,
+  Status,
 };
 
 #[cfg(all(
@@ -46,7 +47,7 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
   let pattern_buffer = &mut ctx.get::<JsBuffer>(0)?.into_value()?;
   let mut patterns: Vec<String> = vec![];
 
-  let mut max_states: u16 = 0;
+  let mut max_states: u32 = 0;
   let mut s = Vec::new();
 
   for ix in 0..pattern_buffer.len() {
@@ -69,14 +70,22 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
       // lengths + 1 (for the root, or 0, state).
       // case insensitive needs to increment max states for each alpha
       // character.
-      max_states += pattern.len() as u16;
+      max_states += pattern.len() as u32;
       patterns.push(pattern);
 
       s = Vec::new();
     }
   }
 
-  // if max_states > u16 max value return error.
+  //
+  if max_states >= u16::MAX.into() {
+    let msg: String = format!("total length of patterns, {}, is exceeds {}", max_states, u16::MAX);
+    let e = napi::Error {status: Status::InvalidArg, reason: msg};
+    unsafe {
+      napi::JsRangeError::from(e).throw_into(ctx.env.raw());
+    }
+    return ctx.env.get_undefined();
+  }
 
   let fail: Vec<u16> = vec![0; max_states as usize + 1];
 
@@ -91,7 +100,7 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
   // create the struct we wrap as external data.
   let mut aho = AhoCorasick {
     patterns,
-    max_states,
+    max_states: max_states as u16,
     goto,
     fail,
     out,
@@ -263,6 +272,11 @@ fn reset(ctx: CallContext) -> Result<JsUndefined> {
   aho.state = 0;
 
   ctx.env.get_undefined()
+}
+
+
+fn make_error(env: Env, status: napi::Status, s: String) -> Result<JsObject> {
+  env.create_error(napi::Error {status, reason: s})
 }
 
 #[module_exports]
