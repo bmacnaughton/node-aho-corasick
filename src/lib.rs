@@ -7,9 +7,9 @@ use std::str;
 use std::string::String;
 
 use napi::{
-  Env, CallContext, Property, Result,
+  Env, CallContext, Property, Result, Either,
   JsUndefined, JsBuffer, JsObject, JsBoolean,
-  Status,
+  Status, JsTypeError, JsRangeError,
 };
 
 #[cfg(all(
@@ -77,18 +77,18 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
     }
   }
 
-  //
+  // if the maximum states overflow a u16 then throw a javascript error.
   if max_states >= u16::MAX.into() {
-    let msg: String = format!("total length of patterns, {}, is exceeds {}", max_states, u16::MAX);
+    let msg: String = format!("total length of patterns, {}, exceeds {}", max_states, u16::MAX - 1);
     let e = napi::Error {status: Status::InvalidArg, reason: msg};
     unsafe {
-      napi::JsRangeError::from(e).throw_into(ctx.env.raw());
+      JsRangeError::from(e).throw_into(ctx.env.raw());
     }
     return ctx.env.get_undefined();
   }
 
+  // allocate the data for the state machine
   let fail: Vec<u16> = vec![0; max_states as usize + 1];
-
   let mut goto: Vec<[u16; MAX_CHARS]> = Vec::new();
   let mut out: Vec<Vec<String>> = Vec::new();
 
@@ -239,7 +239,42 @@ fn build_automaton(aho: &mut AhoCorasick) -> u16 {
 
 #[js_function(1)]
 fn suspicious(ctx: CallContext) -> Result<JsBoolean> {
-  let bytes = &mut ctx.get::<JsBuffer>(0)?.into_value()?;
+  //type MaybeBuffer = Either<JsBuffer, JsUndefined>;
+
+  let result: Result<Either<JsBuffer, JsUndefined>> = ctx.try_get::<JsBuffer>(0);
+  let bytes;
+  let buf;
+
+  //napi::Either<JsBuffer, JsUndefined>
+
+  match result {
+    Ok(maybe_buffer) => {
+      let b: Option<JsBuffer> = Option::<JsBuffer>::from(maybe_buffer);
+      match b {
+        Some(bf) => buf = bf,
+        None => {
+          //throw_invalid_arg(&ctx.env);
+          let msg: String = String::from("argument must be a buffer");
+          let e = napi::Error {status: Status::InvalidArg, reason: msg};
+          unsafe {
+            JsTypeError::from(e).throw_into(ctx.env.raw());
+          }
+          return ctx.env.get_boolean(false);
+        }
+      }
+    }
+    Err(e) => {
+      let msg: String = String::from("argument must be a buffer");
+      let e = napi::Error {status: Status::InvalidArg, reason: msg};
+      unsafe {
+        JsTypeError::from(e).throw_into(ctx.env.raw());
+      }
+      return ctx.env.get_boolean(false);
+    }
+  }
+  bytes = buf.into_value()?;
+
+  //let bytes = &mut ctx.try_get::<JsBuffer>(0)?.into_value()?;
   let this: JsObject = ctx.this_unchecked();
   let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
 
@@ -278,6 +313,16 @@ fn reset(ctx: CallContext) -> Result<JsUndefined> {
 fn make_error(env: Env, status: napi::Status, s: String) -> Result<JsObject> {
   env.create_error(napi::Error {status, reason: s})
 }
+
+/*
+fn throw_invalid_arg(env: Env, status: napi::Status, s: String) {
+  let error: Result<JsObject> = make_error(env, status, s);
+
+  unsafe {
+    JsTypeError::from(error).throw_into(env.raw());
+  }
+}
+// */
 
 #[module_exports]
 fn init(mut exports: JsObject, env: Env) -> Result<()> {
