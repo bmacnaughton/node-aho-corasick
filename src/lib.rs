@@ -8,7 +8,7 @@ use std::string::String;
 
 use napi::{
   Env, CallContext, Property, Result, Either,
-  JsUndefined, JsBuffer, JsObject, JsBoolean,
+  JsUndefined, JsBuffer, JsObject, JsBoolean, JsUnknown,
   Status, JsTypeError, JsRangeError,
 };
 
@@ -57,7 +57,6 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
       // might be useful to accept two arguments: one case-sensitive, the
       // other case-insensitive. but for now, all text is insensitive.
       if ('a'..='z').contains(&c) || ('A'..'Z').contains(&c) {
-      //if c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' {
         max_states += 1;
       }
       s.push(pattern_buffer[ix]);
@@ -121,6 +120,11 @@ fn get_n(ctx: CallContext) -> Result<JsObject> {
   let this: JsObject = ctx.this_unchecked();
   let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
 
+  let thing: JsUnknown = ctx.get::<JsUnknown>(0)?;
+  let js_type: napi::ValueType = thing.get_type()?;
+  let arg_type: String = format!("{}", js_type);
+
+
   let mut o: JsObject = ctx.env.create_array()?;
 
   for i in 0..aho.patterns.len() {
@@ -131,11 +135,9 @@ fn get_n(ctx: CallContext) -> Result<JsObject> {
 
   let max_states: i32 = aho.max_states as i32;
   o.set_named_property("maxStates", ctx.env.create_int32(max_states)?)?;
+  o.set_named_property("argType", ctx.env.create_string_from_std(arg_type)?)?;
 
   Ok(o)
-  //ctx.env.create_int32(aho.patterns.len() as i32)
-
-  //ctx.env.create_int32(aho.n as i32)
 }
 
 fn build_automaton(aho: &mut AhoCorasick) -> u16 {
@@ -240,12 +242,11 @@ fn build_automaton(aho: &mut AhoCorasick) -> u16 {
 #[js_function(1)]
 fn suspicious(ctx: CallContext) -> Result<JsBoolean> {
   //type MaybeBuffer = Either<JsBuffer, JsUndefined>;
+  let false_result: Result<JsBoolean> = ctx.env.get_boolean(false);
 
   let result: Result<Either<JsBuffer, JsUndefined>> = ctx.try_get::<JsBuffer>(0);
   let bytes;
   let buf;
-
-  //napi::Either<JsBuffer, JsUndefined>
 
   match result {
     Ok(maybe_buffer) => {
@@ -253,34 +254,23 @@ fn suspicious(ctx: CallContext) -> Result<JsBoolean> {
       match b {
         Some(bf) => buf = bf,
         None => {
-          //throw_invalid_arg(&ctx.env);
-          let msg: String = String::from("argument must be a buffer");
-          let e = napi::Error {status: Status::InvalidArg, reason: msg};
-          unsafe {
-            JsTypeError::from(e).throw_into(ctx.env.raw());
-          }
-          return ctx.env.get_boolean(false);
+          return throw_not_buffer(ctx.env, false_result);
         }
       }
     }
-    Err(e) => {
-      let msg: String = String::from("argument must be a buffer");
-      let e = napi::Error {status: Status::InvalidArg, reason: msg};
-      unsafe {
-        JsTypeError::from(e).throw_into(ctx.env.raw());
-      }
-      return ctx.env.get_boolean(false);
+    Err(_e) => {
+      // _e: { status: InvalidArg, reason: "expect Object, got: String" }
+      return throw_not_buffer(ctx.env, false_result);
     }
   }
   bytes = buf.into_value()?;
 
-  //let bytes = &mut ctx.try_get::<JsBuffer>(0)?.into_value()?;
   let this: JsObject = ctx.this_unchecked();
   let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
 
   for &b in bytes.iter() {
     let mut byte: u8 = b;
-    // for bytes larger than the max to fail by setting to an
+    // force bytes larger than the max to fail by setting to an
     // impossible value.
     if byte >= MAX_CHARS as u8 {
       byte = 0;
@@ -297,7 +287,7 @@ fn suspicious(ctx: CallContext) -> Result<JsBoolean> {
     }
   }
 
-  ctx.env.get_boolean(false)
+  false_result
 }
 
 #[js_function(1)]
@@ -310,19 +300,28 @@ fn reset(ctx: CallContext) -> Result<JsUndefined> {
 }
 
 
-fn make_error(env: Env, status: napi::Status, s: String) -> Result<JsObject> {
-  env.create_error(napi::Error {status, reason: s})
-}
-
-/*
-fn throw_invalid_arg(env: Env, status: napi::Status, s: String) {
-  let error: Result<JsObject> = make_error(env, status, s);
-
-  unsafe {
-    JsTypeError::from(error).throw_into(env.raw());
+fn _make_error(env: &Env, status: napi::Status, s: String) -> JsObject {
+  let r = env.create_error(napi::Error {status, reason: s});
+  match r {
+    Err(e) => {
+      // can't make an error - what are the chances we can throw an error.
+      panic!("cannot make an error: {}", e);
+    },
+    // but neither TypeError not RangeError has no ::from for JsObject, so
+    // can't really use this function.
+    Ok(obj) => obj
   }
 }
-// */
+
+fn throw_not_buffer<T>(env: &Env, return_value: T) -> T {
+  let msg: String = String::from("argument must be a buffer");
+  let e = napi::Error {status: Status::InvalidArg, reason: msg};
+  //let e = make_error(env, Status::InvalidArg, msg);
+  unsafe {
+    JsTypeError::from(e).throw_into(env.raw());
+  };
+  return_value
+}
 
 #[module_exports]
 fn init(mut exports: JsObject, env: Env) -> Result<()> {
