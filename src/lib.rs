@@ -8,7 +8,7 @@ use std::string::String;
 
 use napi::{
   Env, CallContext, Property, Result, Either,
-  JsUndefined, JsBuffer, JsObject, JsNumber, JsUnknown, JsNull,
+  JsUndefined, JsBuffer, JsObject, JsNumber, JsUnknown, JsNull, JsString,
   Status, JsTypeError, JsRangeError,
 };
 
@@ -163,19 +163,24 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
 fn echo(ctx: CallContext) -> Result<JsUnknown> {
   let something: JsUnknown = ctx.get::<JsUnknown>(0)?;
 
-  let num = ctx.env.create_int32(42)?;
-  let string = ctx.env.create_string("forty-two")?;
   match something.get_type() {
     Ok(js_type) => {
       match js_type {
         napi::ValueType::String => {
-          Ok(string.into_unknown())
+          unsafe {
+            let string = something.cast::<JsString>();
+            Ok(string.into_unknown())
+          }
         },
-        napi::ValueType::Number => Ok(num.into_unknown()),
+        napi::ValueType::Number => {
+          unsafe {
+            let num = something.cast::<JsNumber>();
+            Ok(num.into_unknown())
+          }
+        },
         _ => Ok(ctx.env.get_undefined()?.into_unknown())
       }
     }
-    //Ok(_js_type) => Ok(something.into_unknown()),
     Err(e) => Err(e)
   }
 }
@@ -206,8 +211,8 @@ fn echo(ctx: CallContext) -> Result<JsUnknown> {
 // */
 
 #[js_function(1)]
-fn suspicious(ctx: CallContext) -> Result<JsNumber> {
-  let false_result: Result<JsNumber> = ctx.env.create_int32(0);
+fn suspicious(ctx: CallContext) -> Result<JsUnknown> {
+  let false_result: Result<JsUnknown> = Ok(ctx.env.get_null()?.into_unknown());
 
   let bytes;
   match get_buffer(&ctx) {
@@ -221,8 +226,16 @@ fn suspicious(ctx: CallContext) -> Result<JsNumber> {
   let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
 
   match aho.execute(&bytes) {
-    Some(pattern_indexes) => ctx.env.create_int32(pattern_indexes.len() as i32),
-    None => ctx.env.create_int32(0),
+    Some(pattern_indexes) => {
+      let mut a: JsObject = ctx.env.create_array()?;
+      for (ix, pattern_index) in pattern_indexes.iter().enumerate() {
+        let prop = format!("{}", ix);
+        a.set_named_property(&prop, ctx.env.create_int64(*pattern_index as i64)?)?;
+      }
+      Ok(a.into_unknown())
+      //Ok(ctx.env.create_int32(pattern_indexes.len() as i32)?.into_unknown())
+    },
+    None => false_result,
   }
 }
 
