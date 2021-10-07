@@ -8,7 +8,7 @@ use std::string::String;
 
 use napi::{
   Env, CallContext, Property, Result, Either,
-  JsUndefined, JsBuffer, JsObject, JsBoolean,
+  JsUndefined, JsBuffer, JsObject, JsNumber, JsUnknown, JsNull,
   Status, JsTypeError, JsRangeError,
 };
 
@@ -157,9 +157,29 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
 
   ctx.env.get_undefined()
 }
+// */
 
 #[js_function(1)]
-fn get_n(ctx: CallContext) -> Result<JsObject> {
+fn echo(ctx: CallContext) -> Result<JsUnknown> {
+  let something: JsUnknown = ctx.get::<JsUnknown>(0)?;
+
+  let num = ctx.env.create_int32(42)?;
+  let string = ctx.env.create_string("forty-two")?;
+  match something.get_type() {
+    Ok(js_type) => {
+      match js_type {
+        napi::ValueType::String => {
+          Ok(string.into_unknown())
+        },
+        napi::ValueType::Number => Ok(num.into_unknown()),
+        _ => Ok(ctx.env.get_undefined()?.into_unknown())
+      }
+    }
+    //Ok(_js_type) => Ok(something.into_unknown()),
+    Err(e) => Err(e)
+  }
+}
+/*
   //let ix: u32 = ctx.get::<JsNumber>(0)?.try_into()?;
   let this: JsObject = ctx.this_unchecked();
   let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
@@ -186,8 +206,8 @@ fn get_n(ctx: CallContext) -> Result<JsObject> {
 // */
 
 #[js_function(1)]
-fn suspicious(ctx: CallContext) -> Result<JsBoolean> {
-  let false_result: Result<JsBoolean> = ctx.env.get_boolean(false);
+fn suspicious(ctx: CallContext) -> Result<JsNumber> {
+  let false_result: Result<JsNumber> = ctx.env.create_int32(0);
 
   let bytes;
   match get_buffer(&ctx) {
@@ -201,8 +221,8 @@ fn suspicious(ctx: CallContext) -> Result<JsBoolean> {
   let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
 
   match aho.execute(&bytes) {
-    Some(_pattern_indexes) => ctx.env.get_boolean(true),
-    None => false_result,
+    Some(pattern_indexes) => ctx.env.create_int32(pattern_indexes.len() as i32),
+    None => ctx.env.create_int32(0),
   }
 }
 
@@ -253,6 +273,7 @@ fn throw_not_buffer<T>(env: &Env, return_value: T) -> T {
 
 #[module_exports]
 fn init(mut exports: JsObject, env: Env) -> Result<()> {
+  exports.create_named_method("test", echo)?;
   let aho = env.define_class("AhoCorasick", constructor, &[
     //Property::new(&env, "get")?.with_method(get_n),
     Property::new(&env, "suspicious")?.with_method(suspicious),
