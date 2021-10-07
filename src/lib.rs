@@ -8,8 +8,14 @@ use std::string::String;
 
 use napi::{
   Env, CallContext, Property, Result, Either,
-  JsUndefined, JsBuffer, JsObject, JsBoolean, JsUnknown,
+  JsUndefined, JsBuffer, JsObject, JsBoolean,
   Status, JsTypeError, JsRangeError,
+};
+
+mod aho_corasick;
+use aho_corasick as aho;
+use aho_corasick:: {
+  AhoCorasick
 };
 
 #[cfg(all(
@@ -21,26 +27,64 @@ use napi::{
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-// the number of characters that each state has transitions from
-const MAX_CHARS: usize = 128;
-const UNDEFINED: u16 = u16::MAX;
 
-pub struct AhoCorasick {
-  patterns: Vec<String>,
-  max_states: u16,
-  goto: Vec<[u16; MAX_CHARS]>,
-  fail: Vec<u16>,
-  // maybe make these JsString if we want to return them.
-  out: Vec<Vec<String>>,
-  // the current state, so this can be called on streaming data
-  state: u16,
-}
 
 //
 // call from js to match on 'x', 'yz', or '!'
 //
+// we pass a buffer with null-terminated strings in order to avoid passing an unknown
+// number of string arguments or an array or object, both of which are somewhat
+// clumsier to deal with. it's easy enough to wrap the javascript class constructor
+// to translate.
+//
 // new AhoCorasick(Buffer.from(['x', 'yz', '!', ''].join('\x00')));
 //
+#[js_function(1)]
+fn constructor(ctx: CallContext) -> Result<JsUndefined> {
+  let pattern_buffer;
+  match get_buffer(&ctx) {
+    Some(buffer) => pattern_buffer = buffer.into_value()?,
+    None => {
+      return throw_not_buffer(ctx.env, ctx.env.get_undefined());
+    }
+  }
+
+  let mut patterns: Vec<String> = vec![];
+
+  let mut string_chars = Vec::new();
+  for ix in 0..pattern_buffer.len() {
+    if pattern_buffer[ix] != 0 {
+      string_chars.push(pattern_buffer[ix]);
+      continue;
+    }
+    // the character is a null, make a string if it's not zero-length.
+    if !string_chars.is_empty() {
+      let pattern = String::from_utf8(string_chars.clone()).unwrap_or_default();
+      patterns.push(pattern);
+      string_chars.clear();
+    }
+  }
+
+  let aho: aho::AhoCorasick;
+
+  match aho::build_automaton(patterns) {
+    Ok(automaton) => aho = automaton,
+    Err(text) => {
+      let e = napi::Error {status: Status::InvalidArg, reason: text};
+      unsafe {
+        JsRangeError::from(e).throw_into(ctx.env.raw());
+      }
+      return ctx.env.get_undefined();
+    }
+  }
+
+  let mut this: JsObject = ctx.this_unchecked();
+  ctx.env.wrap(&mut this, aho)?;
+
+  ctx.env.get_undefined()
+}
+
+/*
 #[js_function(1)]
 fn constructor(ctx: CallContext) -> Result<JsUndefined> {
 
@@ -139,164 +183,48 @@ fn get_n(ctx: CallContext) -> Result<JsObject> {
 
   Ok(o)
 }
-
-fn build_automaton(aho: &mut AhoCorasick) -> u16 {
-  // start with only the root state (state 0)
-  let mut state_count = 1;
-
-  // fill in the goto matrix
-  for pattern in &aho.patterns {
-    let bytes = pattern.as_bytes();
-
-    let mut state: u16 = 0;
-
-    for &byte in bytes {
-      if byte >= MAX_CHARS as u8 {
-        // return an error somehow.
-      }
-      if aho.goto[state as usize][byte as usize] == UNDEFINED {
-        aho.goto[state as usize][byte as usize] = state_count;
-        state_count += 1;
-      }
-      // save previous state so we can make transitions case-insensitive.
-      let previous_state = state;
-      state = aho.goto[state as usize][byte as usize];
-
-      let extra: usize;
-      if (b'a'..=b'z').contains(&byte) {
-      //if byte >= b'a' && byte <= b'z' {
-        extra = (byte - (b'a' - b'A')) as usize;
-      } else if (b'A'..=b'Z').contains(&byte) {
-      //} else if byte >= b'A' && byte <= b'Z' {
-        extra = (byte + (b'a' - b'A')) as usize;
-      } else {
-        continue;
-      }
-
-      if aho.goto[previous_state as usize][extra] == UNDEFINED {
-        // transition to the same state that the opposite case character
-        // transitioned to.
-        aho.goto[previous_state as usize][extra] = state_count - 1;
-      }
-    }
-    aho.out[state as usize].push(pattern.to_string());
-  }
-
-  // for all root transitions that are undefined, make them transition to
-  // the root.
-  for ix in 0..MAX_CHARS {
-    let byte: usize = ix as usize;
-    if aho.goto[0][byte] == UNDEFINED {
-      aho.goto[0][byte] = 0;
-    }
-  }
-
-  let mut queue: Vec<u16> = Vec::<u16>::new();
-
-  // iterate over all possible input byte values
-  for ix in 0..MAX_CHARS {
-    let byte: usize = ix as usize;
-    if aho.goto[0][byte] != 0 {
-      aho.fail[aho.goto[0][byte] as usize] = 0;
-      queue.push(aho.goto[0][byte]);
-    }
-  }
-
-  // work states in the queue
-  while !queue.is_empty() {
-    let state: usize = queue.remove(0) as usize;
-
-    // for the removed state, find the failure for for all characters that
-    // don't have a goto transition.
-    for ix in 0..MAX_CHARS {
-      let byte: usize = ix as usize;
-
-      if aho.goto[state][byte] == UNDEFINED {
-        continue;
-      }
-
-      // get the failure transition
-      let mut failure: usize = aho.fail[state] as usize;
-
-      // find the deepest node
-      while aho.goto[failure][byte] == UNDEFINED {
-        failure = aho.fail[failure] as usize;
-      }
-
-      // and goto that node's transition
-      failure = aho.goto[failure][byte] as usize;
-      aho.fail[aho.goto[state][byte] as usize] = failure as u16;
-
-      // merge outputs
-      // add string to aho.out
-
-      // insert the next level node into the queue
-      queue.push(aho.goto[state][byte]);
-
-    }
-  }
-
-  state_count
-}
+// */
 
 #[js_function(1)]
 fn suspicious(ctx: CallContext) -> Result<JsBoolean> {
-  //type MaybeBuffer = Either<JsBuffer, JsUndefined>;
   let false_result: Result<JsBoolean> = ctx.env.get_boolean(false);
 
-  let result: Result<Either<JsBuffer, JsUndefined>> = ctx.try_get::<JsBuffer>(0);
   let bytes;
-  let buf;
-
-  match result {
-    Ok(maybe_buffer) => {
-      let b: Option<JsBuffer> = Option::<JsBuffer>::from(maybe_buffer);
-      match b {
-        Some(bf) => buf = bf,
-        None => {
-          return throw_not_buffer(ctx.env, false_result);
-        }
-      }
-    }
-    Err(_e) => {
-      // _e: { status: InvalidArg, reason: "expect Object, got: String" }
+  match get_buffer(&ctx) {
+    Some(buffer) => bytes = buffer.into_value()?,
+    None => {
       return throw_not_buffer(ctx.env, false_result);
     }
   }
-  bytes = buf.into_value()?;
 
   let this: JsObject = ctx.this_unchecked();
   let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
 
-  for &b in bytes.iter() {
-    let mut byte: u8 = b;
-    // force bytes larger than the max to fail by setting to an
-    // impossible value.
-    if byte >= MAX_CHARS as u8 {
-      byte = 0;
-    }
-    let mut next: u16 = aho.state;
-    while aho.goto[next as usize][byte as usize] == UNDEFINED {
-      next = aho.fail[next as usize];
-    }
-
-    aho.state = aho.goto[next as usize][byte as usize];
-
-    if !aho.out[aho.state as usize].is_empty() {
-      return ctx.env.get_boolean(true);
-    }
+  match aho.execute(&bytes) {
+    Some(_pattern_indexes) => ctx.env.get_boolean(true),
+    None => false_result,
   }
-
-  false_result
 }
 
 #[js_function(1)]
 fn reset(ctx: CallContext) -> Result<JsUndefined> {
   let this: JsObject = ctx.this_unchecked();
   let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
-  aho.state = 0;
-
+  aho.reset();
   ctx.env.get_undefined()
+}
+
+fn get_buffer(ctx: &CallContext) -> Option<JsBuffer> {
+  let result: Result<Either<JsBuffer, JsUndefined>> = ctx.try_get::<JsBuffer>(0);
+
+  match result {
+    Ok(maybe_buffer) => {
+      let b: Option<JsBuffer> = Option::<JsBuffer>::from(maybe_buffer);
+      b
+    }
+    // _e: { status: InvalidArg, reason: "expect Object, got: String" }
+    Err(_e) => None
+  }
 }
 
 
@@ -304,7 +232,7 @@ fn _make_error(env: &Env, status: napi::Status, s: String) -> JsObject {
   let r = env.create_error(napi::Error {status, reason: s});
   match r {
     Err(e) => {
-      // can't make an error - what are the chances we can throw an error.
+      // can't make an error - what are the chances we can throw an error?
       panic!("cannot make an error: {}", e);
     },
     // but neither TypeError not RangeError has no ::from for JsObject, so
@@ -326,7 +254,7 @@ fn throw_not_buffer<T>(env: &Env, return_value: T) -> T {
 #[module_exports]
 fn init(mut exports: JsObject, env: Env) -> Result<()> {
   let aho = env.define_class("AhoCorasick", constructor, &[
-    Property::new(&env, "get")?.with_method(get_n),
+    //Property::new(&env, "get")?.with_method(get_n),
     Property::new(&env, "suspicious")?.with_method(suspicious),
     Property::new(&env, "reset")?.with_method(reset),
   ])?;
