@@ -8,7 +8,7 @@ use std::string::String;
 
 use napi::{
   Env, CallContext, Property, Result, Either,
-  JsUndefined, JsBuffer, JsObject, JsNumber, JsUnknown, JsNull, JsString,
+  JsUndefined, JsBuffer, JsObject, JsNumber, JsUnknown, JsString,
   Status, JsTypeError, JsRangeError,
 };
 
@@ -84,81 +84,6 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
   ctx.env.get_undefined()
 }
 
-/*
-#[js_function(1)]
-fn constructor(ctx: CallContext) -> Result<JsUndefined> {
-
-  let pattern_buffer = &mut ctx.get::<JsBuffer>(0)?.into_value()?;
-  let mut patterns: Vec<String> = vec![];
-
-  let mut max_states: u32 = 0;
-  let mut s = Vec::new();
-
-  for ix in 0..pattern_buffer.len() {
-    if pattern_buffer[ix] != 0 {
-      let c: char = pattern_buffer[ix] as char;
-      // this additional space is needed to make alpha case-insensitive. it
-      // might be useful to accept two arguments: one case-sensitive, the
-      // other case-insensitive. but for now, all text is insensitive.
-      if ('a'..='z').contains(&c) || ('A'..'Z').contains(&c) {
-        max_states += 1;
-      }
-      s.push(pattern_buffer[ix]);
-      continue;
-    }
-    // it's a null, make the string if it's not zero-length.
-    if !s.is_empty() {
-      let pattern = String::from_utf8(s).unwrap_or_default();
-      // the maximum number of states is equal to the sum of the pattern
-      // lengths + 1 (for the root, or 0, state).
-      // case insensitive needs to increment max states for each alpha
-      // character.
-      max_states += pattern.len() as u32;
-      patterns.push(pattern);
-
-      s = Vec::new();
-    }
-  }
-
-  // if the maximum states overflow a u16 then throw a javascript error.
-  if max_states >= u16::MAX.into() {
-    let msg: String = format!("total length of patterns, {}, exceeds {}", max_states, u16::MAX - 1);
-    let e = napi::Error {status: Status::InvalidArg, reason: msg};
-    unsafe {
-      JsRangeError::from(e).throw_into(ctx.env.raw());
-    }
-    return ctx.env.get_undefined();
-  }
-
-  // allocate the data for the state machine
-  let fail: Vec<u16> = vec![0; max_states as usize + 1];
-  let mut goto: Vec<[u16; MAX_CHARS]> = Vec::new();
-  let mut out: Vec<Vec<String>> = Vec::new();
-
-  for _ in 0..=max_states {
-    goto.push(*Box::new([UNDEFINED; MAX_CHARS]));
-    out.push(Vec::<String>::new());
-  }
-
-  // create the struct we wrap as external data.
-  let mut aho = AhoCorasick {
-    patterns,
-    max_states: max_states as u16,
-    goto,
-    fail,
-    out,
-    state: 0,
-  };
-
-  build_automaton(&mut aho);
-
-  let mut this: JsObject = ctx.this_unchecked();
-  ctx.env.wrap(&mut this, aho)?;
-
-  ctx.env.get_undefined()
-}
-// */
-
 #[js_function(1)]
 fn echo(ctx: CallContext) -> Result<JsUnknown> {
   let something: JsUnknown = ctx.get::<JsUnknown>(0)?;
@@ -178,37 +103,18 @@ fn echo(ctx: CallContext) -> Result<JsUnknown> {
             Ok(num.into_unknown())
           }
         },
+        napi::ValueType::Object => {
+          unsafe {
+            let obj = something.cast::<JsObject>();
+            Ok(obj.into_unknown())
+          }
+        }
         _ => Ok(ctx.env.get_undefined()?.into_unknown())
       }
     }
     Err(e) => Err(e)
   }
 }
-/*
-  //let ix: u32 = ctx.get::<JsNumber>(0)?.try_into()?;
-  let this: JsObject = ctx.this_unchecked();
-  let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
-
-  let thing: JsUnknown = ctx.get::<JsUnknown>(0)?;
-  let js_type: napi::ValueType = thing.get_type()?;
-  let arg_type: String = format!("{}", js_type);
-
-
-  let mut o: JsObject = ctx.env.create_array()?;
-
-  for i in 0..aho.patterns.len() {
-    let prop = format!("{}", i);
-    let s = ctx.env.create_string_from_std(aho.patterns[i].to_string())?;
-    o.set_named_property(&prop, s)?;
-  }
-
-  let max_states: i32 = aho.max_states as i32;
-  o.set_named_property("maxStates", ctx.env.create_int32(max_states)?)?;
-  o.set_named_property("argType", ctx.env.create_string_from_std(arg_type)?)?;
-
-  Ok(o)
-}
-// */
 
 #[js_function(1)]
 fn suspicious(ctx: CallContext) -> Result<JsUnknown> {
@@ -233,7 +139,6 @@ fn suspicious(ctx: CallContext) -> Result<JsUnknown> {
         a.set_named_property(&prop, ctx.env.create_int64(*pattern_index as i64)?)?;
       }
       Ok(a.into_unknown())
-      //Ok(ctx.env.create_int32(pattern_indexes.len() as i32)?.into_unknown())
     },
     None => false_result,
   }
