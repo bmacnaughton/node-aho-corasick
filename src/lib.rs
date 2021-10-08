@@ -5,12 +5,14 @@ extern crate napi_derive;
 
 use std::str;
 use std::string::String;
+use std::rc::Rc;
 
 use napi::{
   Env, CallContext, Property, Result, Either,
   JsUndefined, JsBuffer, JsObject, JsNumber, JsUnknown, JsString,
   Status, JsTypeError, JsRangeError,
 };
+
 
 mod aho_corasick;
 use aho_corasick as aho;
@@ -27,7 +29,14 @@ use aho_corasick:: {
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-
+//extern "C" {
+//  pub fn napi_instanceof(
+//    env: napi_env,
+//    object: napi_value,
+//    constructor: napi_value,
+//    result: *mut bool,
+//  ) -> napi_status;
+//}
 
 //
 // call from js to match on 'x', 'yz', or '!'
@@ -49,6 +58,13 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
     }
   }
 
+  //let mut result = false;
+  //let maybe: JsUnknown = ctx.get::<JsUnknown>(0)?;
+  //
+  //check_status!(unsafe {
+  //  napi_instanceof(maybe.raw.env, maybe.raw.value, constructor.raw(), &mut result)
+  //})?;
+
   let mut patterns: Vec<String> = vec![];
 
   let mut string_chars = Vec::new();
@@ -65,10 +81,10 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
     }
   }
 
-  let aho: aho::AhoCorasick;
+  let auto: Rc<aho::Automaton>;
 
-  match aho::build_automaton(patterns) {
-    Ok(automaton) => aho = automaton,
+  match aho::automaton::build_automaton(patterns) {
+    Ok(automaton) => auto = automaton,
     Err(text) => {
       let e = napi::Error {status: Status::InvalidArg, reason: text};
       unsafe {
@@ -77,6 +93,8 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
       return ctx.env.get_undefined();
     }
   }
+
+  let aho = AhoCorasick::new(auto, false);
 
   let mut this: JsObject = ctx.this_unchecked();
   ctx.env.wrap(&mut this, aho)?;

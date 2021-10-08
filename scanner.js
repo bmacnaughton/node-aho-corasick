@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 'use strict';
 
 const {AhoCorasick} = require('./index.linux-x64-gnu.node');
