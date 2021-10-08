@@ -2,6 +2,7 @@
 
 use std::string::String;
 use std::collections::hash_set::HashSet;
+use std::rc::Rc;
 
 // the number of characters that each state has transitions from
 const MAX_CHARS: usize = 128;
@@ -46,10 +47,8 @@ pub fn build_automaton(patterns: Vec<String>) -> Result<AhoCorasick, String> {
 
       let extra: usize;
       if (b'a'..=b'z').contains(&byte) {
-      //if byte >= b'a' && byte <= b'z' {
         extra = (byte - (b'a' - b'A')) as usize;
       } else if (b'A'..=b'Z').contains(&byte) {
-      //} else if byte >= b'A' && byte <= b'Z' {
         extra = (byte + (b'a' - b'A')) as usize;
       } else {
         continue;
@@ -128,6 +127,25 @@ pub fn build_automaton(patterns: Vec<String>) -> Result<AhoCorasick, String> {
 }
 
 impl AhoCorasick {
+  pub fn new(max_states: u16, patterns: Vec<String>) -> Self {
+    let mut goto: Vec<[u16; MAX_CHARS]> = Vec::new();
+    let fail: Vec<u16> = vec![0; max_states as usize + 1];
+    let mut out: Vec<HashSet<usize>> = Vec::new();
+    for _ in 0..=max_states {
+      goto.push(*Box::new([UNDEFINED; MAX_CHARS]));
+      out.push(HashSet::<usize>::new());
+    }
+    AhoCorasick {
+      max_states,
+      patterns,
+      goto,
+      fail,
+      out,
+      state: 0,
+      return_on_first_match: false
+    }
+  }
+
 
   pub fn execute(self: &mut AhoCorasick, bytes: &[u8]) -> Option<HashSet<usize>> {
 
@@ -206,28 +224,8 @@ fn create_automaton_skeleton(patterns: Vec<String>) -> Result<AhoCorasick, Strin
     return Err(msg);
   }
 
-  // allocate the data for the state machine
-  let fail: Vec<u16> = vec![0; max_states as usize + 1];
-  let mut goto: Vec<[u16; MAX_CHARS]> = Vec::new();
-  // maybe a vec of indexes...
-  let mut out: Vec<HashSet<usize>> = Vec::new();
-
-  for _ in 0..=max_states {
-    // is Box needed here?
-    goto.push(*Box::new([UNDEFINED; MAX_CHARS]));
-    out.push(HashSet::<usize>::new());
-  }
-
   // create the struct we wrap as external data.
-  let aho = AhoCorasick {
-    patterns,
-    max_states: max_states as u16,
-    goto,
-    fail,
-    out,
-    state: 0,
-    return_on_first_match: false,
-  };
+  let aho = AhoCorasick::new(max_states as u16, patterns);
 
   // and return the structure
   Ok(aho)
