@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use napi::{
   Env, CallContext, Property, Result, Either,
-  JsUndefined, JsBuffer, JsObject, JsNumber, JsUnknown, JsString,
+  JsUndefined, JsBuffer, JsObject, JsNumber, JsUnknown, JsString, JsBoolean,
   Status, JsTypeError, JsRangeError,
 };
 
@@ -29,27 +29,27 @@ use aho_corasick:: {
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-//extern "C" {
-//  pub fn napi_instanceof(
-//    env: napi_env,
-//    object: napi_value,
-//    constructor: napi_value,
-//    result: *mut bool,
-//  ) -> napi_status;
-//}
 
-//
-// call from js to match on 'x', 'yz', or '!'
-//
-// we pass a buffer with null-terminated strings in order to avoid passing an unknown
-// number of string arguments or an array or object, both of which are somewhat
-// clumsier to deal with. it's easy enough to wrap the javascript class constructor
-// to translate.
-//
-// new AhoCorasick(Buffer.from(['x', 'yz', '!', ''].join('\x00')));
-//
+enum ArgType {
+  Buffer(JsBuffer),
+  Automaton(Rc<aho::Automaton>)
+}
+
+/// JavaScript-callable constructor to create an Aho-Corasick machine
 #[js_function(1)]
 fn constructor(ctx: CallContext) -> Result<JsUndefined> {
+  let mut this: JsObject = ctx.this_unchecked();
+
+  let arg = get_arg(&ctx)?;
+
+  // if they passed an instance then it's a quick clone. or so the theory
+  // goes.
+  if let ArgType::Automaton(auto) = arg {
+    let aho = AhoCorasick::new(auto, false);
+    ctx.env.wrap(&mut this, aho)?;
+    return ctx.env.get_undefined()
+  }
+
   let pattern_buffer;
   match get_buffer(&ctx) {
     Some(buffer) => pattern_buffer = buffer.into_value()?,
@@ -57,13 +57,6 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
       return throw_not_buffer(ctx.env, ctx.env.get_undefined());
     }
   }
-
-  //let mut result = false;
-  //let maybe: JsUnknown = ctx.get::<JsUnknown>(0)?;
-  //
-  //check_status!(unsafe {
-  //  napi_instanceof(maybe.raw.env, maybe.raw.value, constructor.raw(), &mut result)
-  //})?;
 
   let mut patterns: Vec<String> = vec![];
 
@@ -96,42 +89,9 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
 
   let aho = AhoCorasick::new(auto, false);
 
-  let mut this: JsObject = ctx.this_unchecked();
   ctx.env.wrap(&mut this, aho)?;
 
   ctx.env.get_undefined()
-}
-
-#[js_function(1)]
-fn echo(ctx: CallContext) -> Result<JsUnknown> {
-  let something: JsUnknown = ctx.get::<JsUnknown>(0)?;
-
-  match something.get_type() {
-    Ok(js_type) => {
-      match js_type {
-        napi::ValueType::String => {
-          unsafe {
-            let string = something.cast::<JsString>();
-            Ok(string.into_unknown())
-          }
-        },
-        napi::ValueType::Number => {
-          unsafe {
-            let num = something.cast::<JsNumber>();
-            Ok(num.into_unknown())
-          }
-        },
-        napi::ValueType::Object => {
-          unsafe {
-            let obj = something.cast::<JsObject>();
-            Ok(obj.into_unknown())
-          }
-        }
-        _ => Ok(ctx.env.get_undefined()?.into_unknown())
-      }
-    }
-    Err(e) => Err(e)
-  }
 }
 
 #[js_function(1)]
@@ -170,6 +130,35 @@ fn reset(ctx: CallContext) -> Result<JsUndefined> {
   ctx.env.get_undefined()
 }
 
+fn get_arg(ctx: &CallContext) -> Result<ArgType> {
+  let something = ctx.get::<JsUnknown>(0)?;
+
+  let arg_type = something.get_type();
+
+  if let Err(e) = arg_type {
+    return Err(e);
+  }
+
+  let object: JsObject;
+  unsafe {
+    object = something.cast::<JsObject>();
+  }
+
+  if object.is_buffer()? {
+    unsafe {
+      let buffer: JsBuffer = something.cast::<JsBuffer>();
+      return Ok(ArgType::Buffer(buffer));
+    }
+  }
+
+  // this line should throw if the object is not an AhoCorasick instance.
+  let aho: &mut AhoCorasick = ctx.env.unwrap(&object)?;
+  let automaton: Rc<aho::Automaton> = Rc::clone(&aho.automaton);
+
+  Ok(ArgType::Automaton(automaton))
+}
+
+/// get_buffer tries to convert the first javascript argument as a buffer.
 fn get_buffer(ctx: &CallContext) -> Option<JsBuffer> {
   let result: Result<Either<JsBuffer, JsUndefined>> = ctx.try_get::<JsBuffer>(0);
 
@@ -183,7 +172,8 @@ fn get_buffer(ctx: &CallContext) -> Option<JsBuffer> {
   }
 }
 
-
+/// currently unused function because neither TypError nor RangeError implement
+/// from(JsObject).
 fn _make_error(env: &Env, status: napi::Status, s: String) -> JsObject {
   let r = env.create_error(napi::Error {status, reason: s});
   match r {
@@ -197,10 +187,10 @@ fn _make_error(env: &Env, status: napi::Status, s: String) -> JsObject {
   }
 }
 
+/// throw a TypeError Invalid Arg "argument must be a buffer" error
 fn throw_not_buffer<T>(env: &Env, return_value: T) -> T {
   let msg: String = String::from("argument must be a buffer");
   let e = napi::Error {status: Status::InvalidArg, reason: msg};
-  //let e = make_error(env, Status::InvalidArg, msg);
   unsafe {
     JsTypeError::from(e).throw_into(env.raw());
   };
@@ -209,12 +199,73 @@ fn throw_not_buffer<T>(env: &Env, return_value: T) -> T {
 
 #[module_exports]
 fn init(mut exports: JsObject, env: Env) -> Result<()> {
-  exports.create_named_method("test", echo)?;
   let aho = env.define_class("AhoCorasick", constructor, &[
-    //Property::new(&env, "get")?.with_method(get_n),
     Property::new(&env, "suspicious")?.with_method(suspicious),
     Property::new(&env, "reset")?.with_method(reset),
   ])?;
   exports.set_named_property("AhoCorasick", aho)?;
+
+  exports.create_named_method("test", echo)?;
+  exports.create_named_method("unwrap", clone)?;
   Ok(())
+}
+
+
+/// echo is a test function to play with things while in development. right now
+/// it shows how to return different types by converting them from/to JsUnknown.
+#[js_function(1)]
+fn echo(ctx: CallContext) -> Result<JsUnknown> {
+  let something: JsUnknown = ctx.get::<JsUnknown>(0)?;
+
+  match something.get_type() {
+    Ok(js_type) => {
+      match js_type {
+        napi::ValueType::String => {
+          unsafe {
+            let string = something.cast::<JsString>();
+            Ok(string.into_unknown())
+          }
+        },
+        napi::ValueType::Number => {
+          unsafe {
+            let num = something.cast::<JsNumber>();
+            Ok(num.into_unknown())
+          }
+        },
+        napi::ValueType::Object => {
+          unsafe {
+            let obj = something.cast::<JsObject>();
+            Ok(obj.into_unknown())
+          }
+        }
+        _ => Ok(ctx.env.get_undefined()?.into_unknown())
+      }
+    }
+    Err(e) => Err(e)
+  }
+}
+
+#[js_function(1)]
+fn clone(ctx: CallContext) -> Result<JsNumber> {
+  let this: JsObject = ctx.get::<JsObject>(0)?;
+  //let this: JsObject = ctx.this_unchecked();
+
+  let aho: &mut AhoCorasick;
+  if !this.has_property("suspicious")? {
+    return ctx.env.create_int32(-1);
+  }
+  aho = ctx.env.unwrap(&this)?;
+  ctx.env.create_int32(aho.context.state as i32)
+
+  //ctx.env.get_boolean(this.has_property("suspicious")?)
+
+  // get_all_property_names is not in v1 of napi-rs.
+  //let names: JsObject = this.get_all_property_names(
+  //  napi::KeyCollectionMode::OwnOnly,
+  //  napi::KeyFilter::AllProperties,
+  //  napi::KeyConversion::NumbersToStrings
+  //);
+
+  //let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
+  //ctx.env.create_int32(aho.context.state as i32)
 }

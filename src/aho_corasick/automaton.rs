@@ -1,6 +1,8 @@
 use std::collections::hash_set::HashSet;
 use std::rc::Rc;
 
+use super::context::Context;
+
 // the number of characters that each state has transitions from
 pub const MAX_CHARS: usize = 128;
 pub const UNDEFINED: u16 = u16::MAX;
@@ -138,6 +140,40 @@ impl Automaton {
       fail,
       out,
     }
+  }
+
+  pub fn execute(self: &Automaton, ctx: &mut Context, bytes: &[u8]) -> HashSet<usize> {
+
+    let mut found = HashSet::<usize>::new();
+
+    for &b in bytes.iter() {
+      let mut byte: u8 = b;
+      // force bytes larger than the max to fail by setting to an
+      // impossible value.
+      if byte >= MAX_CHARS as u8 {
+        byte = 0;
+      }
+      let mut next: u16 = ctx.state;
+      while self.goto[next as usize][byte as usize] == UNDEFINED {
+        next = self.fail[next as usize];
+      }
+
+      ctx.state = self.goto[next as usize][byte as usize];
+
+      let matches = &self.out[ctx.state as usize];
+      if !matches.is_empty() {
+        for pattern_index in matches.iter() {
+          found.insert(*pattern_index);
+        }
+
+        // add matches to set
+        if ctx.return_on_first_match {
+          return found;
+        }
+      }
+    }
+
+    found
   }
 }
 

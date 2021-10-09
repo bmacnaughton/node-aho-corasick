@@ -49,5 +49,5 @@ if (require.main) {
     console.log('r', r, 'not equal to testData', testData);
     process.exit(1);
   }
-  console.log('tests passed');
+  console.log('chicken test passed');
 }
