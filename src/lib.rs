@@ -9,16 +9,14 @@ use std::rc::Rc;
 
 use napi::{
   Env, CallContext, Property, Result, Either,
-  JsUndefined, JsBuffer, JsObject, JsNumber, JsUnknown, JsString, JsBoolean,
+  JsUndefined, JsBuffer, JsObject, JsNumber, JsUnknown, JsString,
   Status, JsTypeError, JsRangeError,
 };
 
 
-mod aho_corasick;
-use aho_corasick as aho;
-use aho_corasick:: {
-  AhoCorasick
-};
+mod aho;
+use aho::{AhoCorasick};
+use aho::aho_corasick::{automaton};
 
 #[cfg(all(
   any(windows, unix),
@@ -51,12 +49,19 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
   }
 
   let pattern_buffer;
-  match get_buffer(&ctx) {
-    Some(buffer) => pattern_buffer = buffer.into_value()?,
-    None => {
-      return throw_not_buffer(ctx.env, ctx.env.get_undefined());
-    }
+  if let ArgType::Buffer(buffer) = arg {
+    pattern_buffer = buffer.into_value()?;
+  } else {
+    return throw_not_buffer(ctx.env, ctx.env.get_undefined());
   }
+
+  //let pattern_buffer;
+  //match get_buffer(&ctx) {
+  //  Some(buffer) => pattern_buffer = buffer.into_value()?,
+  //  None => {
+  //    return throw_not_buffer(ctx.env, ctx.env.get_undefined());
+  //  }
+  //}
 
   let mut patterns: Vec<String> = vec![];
 
@@ -76,7 +81,7 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
 
   let auto: Rc<aho::Automaton>;
 
-  match aho::automaton::build_automaton(patterns) {
+  match automaton::build_automaton(patterns) {
     Ok(automaton) => auto = automaton,
     Err(text) => {
       let e = napi::Error {status: Status::InvalidArg, reason: text};
@@ -206,7 +211,7 @@ fn init(mut exports: JsObject, env: Env) -> Result<()> {
   exports.set_named_property("AhoCorasick", aho)?;
 
   exports.create_named_method("test", echo)?;
-  exports.create_named_method("unwrap", clone)?;
+  exports.create_named_method("info", info)?;
   Ok(())
 }
 
@@ -246,16 +251,24 @@ fn echo(ctx: CallContext) -> Result<JsUnknown> {
 }
 
 #[js_function(1)]
-fn clone(ctx: CallContext) -> Result<JsNumber> {
+fn info(ctx: CallContext) -> Result<JsObject> {
   let this: JsObject = ctx.get::<JsObject>(0)?;
   //let this: JsObject = ctx.this_unchecked();
 
-  let aho: &mut AhoCorasick;
-  if !this.has_property("suspicious")? {
-    return ctx.env.create_int32(-1);
-  }
-  aho = ctx.env.unwrap(&this)?;
-  ctx.env.create_int32(aho.context.state as i32)
+  let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
+
+  let mut o: JsObject = ctx.env.create_object()?;
+  let state = ctx.env.create_int32(aho.context.state as i32)?;
+  let ref_count = ctx.env.create_int32(Rc::strong_count(&aho.automaton) as i32)?;
+
+  o.set_named_property("state", state)?;
+  o.set_named_property("refCount", ref_count)?;
+
+  Ok(o)
+
+  //if !this.has_property("suspicious")? {
+  //  return ctx.env.create_int32(-1);
+  //}
 
   //ctx.env.get_boolean(this.has_property("suspicious")?)
 

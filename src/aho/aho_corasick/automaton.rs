@@ -2,6 +2,7 @@ use std::collections::hash_set::HashSet;
 use std::rc::Rc;
 
 use super::context::Context;
+use super::constants::TRANSLATION;
 
 // the number of characters that each state has transitions from
 pub const MAX_CHARS: usize = 128;
@@ -42,20 +43,20 @@ pub fn build_automaton(patterns: Vec<String>) -> Result<Rc<Automaton>, String> {
       let previous_state = state;
       state = auto.goto[state as usize][byte as usize];
 
-      let extra: usize;
-      if (b'a'..=b'z').contains(&byte) {
-        extra = (byte - (b'a' - b'A')) as usize;
-      } else if (b'A'..=b'Z').contains(&byte) {
-        extra = (byte + (b'a' - b'A')) as usize;
-      } else {
-        continue;
-      }
-
-      if auto.goto[previous_state as usize][extra] == UNDEFINED {
-        // transition to the same state that the opposite case character
-        // transitioned to.
-        auto.goto[previous_state as usize][extra] = state_count - 1;
-      }
+      //let extra: usize;
+      //if (b'a'..=b'z').contains(&byte) {
+      //  extra = (byte - (b'a' - b'A')) as usize;
+      //} else if (b'A'..=b'Z').contains(&byte) {
+      //  extra = (byte + (b'a' - b'A')) as usize;
+      //} else {
+      //  continue;
+      //}
+      //
+      //if auto.goto[previous_state as usize][extra] == UNDEFINED {
+      //  // transition to the same state that the opposite case character
+      //  // transitioned to.
+      //  auto.goto[previous_state as usize][extra] = state_count - 1;
+      //}
     }
     auto.out[state as usize].insert(ix);
   }
@@ -83,6 +84,7 @@ pub fn build_automaton(patterns: Vec<String>) -> Result<Rc<Automaton>, String> {
     }
   }
 
+  let mut try_count = 0;
   // work through the states in the queue
   while !queue.is_empty() {
     let state: usize = queue.remove(0) as usize;
@@ -93,6 +95,10 @@ pub fn build_automaton(patterns: Vec<String>) -> Result<Rc<Automaton>, String> {
       let byte: usize = ix as usize;
 
       if auto.goto[state][byte] == UNDEFINED {
+        try_count += 1;
+        if try_count % 10_000 == 0 {
+          //println!("try count at undefined {} {} {}", state, byte, try_count);
+        }
         continue;
       }
 
@@ -199,9 +205,9 @@ fn create_automaton_skeleton(patterns: Vec<String>) -> Result<Automaton, String>
         return Err("patterns cannot contain non-ASCII characters".to_string());
       }
       // extra states for case insensitivity
-      if ('a'..='z').contains(&(c as char)) || ('A'..='Z').contains(&(c as char)) {
-        max_states += 1;
-      }
+      //if ('a'..='z').contains(&(c as char)) || ('A'..='Z').contains(&(c as char)) {
+      //  max_states += 1;
+      //}
     }
   }
 

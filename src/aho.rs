@@ -3,12 +3,11 @@
 use std::collections::hash_set::HashSet;
 use std::rc::Rc;
 
-mod context;
+pub mod aho_corasick;
+use aho_corasick:: {context};
+
+pub use aho_corasick:: {automaton::Automaton};
 use context::{Context};
-
-pub mod automaton;
-pub use automaton::{Automaton};
-
 
 pub struct AhoCorasick {
   pub automaton: Rc<Automaton>,
