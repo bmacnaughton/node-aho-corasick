@@ -37,10 +37,17 @@ pub fn build_automaton(patterns: Vec<String>) -> Result<Rc<Automaton>, String> {
     for &byte in bytes {
       if auto.goto[state as usize][byte as usize] == UNDEFINED {
         auto.goto[state as usize][byte as usize] = state_count;
+        // if there is a translation for this character then add it transitioning to the
+        // same state. this is used to map all whitespace characters to space and uppercase
+        // to lowercase.
+        if TRANSLATION[byte as usize] != 0 {
+          auto.goto[state as usize][TRANSLATION[byte as usize] as usize] = state_count;
+        }
         state_count += 1;
       }
+
       // save previous state so we can make transitions case-insensitive.
-      let previous_state = state;
+      //let previous_state = state;
       state = auto.goto[state as usize][byte as usize];
 
       //let extra: usize;
@@ -158,6 +165,8 @@ impl Automaton {
       // impossible value.
       if byte >= MAX_CHARS as u8 {
         byte = 0;
+      } else if TRANSLATION[byte as usize] != 0 {
+        byte = TRANSLATION[byte as usize];
       }
       let mut next: u16 = ctx.state;
       while self.goto[next as usize][byte as usize] == UNDEFINED {

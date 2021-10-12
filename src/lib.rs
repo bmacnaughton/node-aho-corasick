@@ -55,14 +55,6 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
     return throw_not_buffer(ctx.env, ctx.env.get_undefined());
   }
 
-  //let pattern_buffer;
-  //match get_buffer(&ctx) {
-  //  Some(buffer) => pattern_buffer = buffer.into_value()?,
-  //  None => {
-  //    return throw_not_buffer(ctx.env, ctx.env.get_undefined());
-  //  }
-  //}
-
   let mut patterns: Vec<String> = vec![];
 
   let mut string_chars = Vec::new();

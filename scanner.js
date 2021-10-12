@@ -48,6 +48,7 @@ module.exports = {
 let errors = 0;
 if (require.main) {
   const s1 = new Scanner('he him his she her hers'.split(' '));
+  console.log('trying testData');
   const r = s1.isSuspicious(testData);
   if (!r) {
     console.log('pattern not found');
@@ -57,6 +58,7 @@ if (require.main) {
     console.log('r', r, 'not equal to testData', testData);
     errors += 1;
   }
+  console.log('trying testUpper');
   const rU = s1.isSuspicious(testUpper);
   if (!rU) {
     console.log('uppercase did not match');
