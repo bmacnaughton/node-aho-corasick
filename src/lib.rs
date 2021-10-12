@@ -27,34 +27,37 @@ use aho_corasick::AhoCorasick;
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 
-enum ArgType<'a> {
-  Buffer(JsBuffer),
-  Automaton(&'a mut AhoCorasick),
-}
-
 
 //fn get_arg<'env> (ctx: &'env CallContext) -> Result<&'env ArgType<'env>>
 /// JavaScript-callable constructor to create an Aho-Corasick machine
 #[js_function(1)]
-fn constructor<'env>(ctx: CallContext) -> Result<JsUndefined> {
+fn constructor(ctx: CallContext) -> Result<JsUndefined> {
   let mut this: JsObject = ctx.this_unchecked();
 
-  let arg: ArgType = get_arg(&ctx)?;
+  // decode the argument
+  let something = ctx.get::<JsUnknown>(0)?;
+  let arg_type = something.get_type();
 
-  // if they passed an instance then it's a quick clone. or so the theory
-  // goes.
-  if let ArgType::Automaton(aho) = arg {
+  if let Err(e) = arg_type {
+    return Err(e);
+  }
+
+  let object: JsObject;
+  unsafe {
+    object = something.cast::<JsObject>();
+  }
+  if !object.is_buffer()? {
+    let aho: &mut AhoCorasick = ctx.env.unwrap(&object)?;
     let clone = aho.clone();
     ctx.env.wrap(&mut this, clone)?;
     return ctx.env.get_undefined();
   }
 
-  let pattern_buffer;
-  if let ArgType::Buffer(buffer) = arg {
-    pattern_buffer = buffer.into_value()?;
-  } else {
-    return throw_not_buffer(ctx.env, ctx.env.get_undefined());
+  let buffer: JsBuffer;
+  unsafe {
+    buffer = something.cast::<JsBuffer>();
   }
+  let pattern_buffer = buffer.into_value()?;
 
   let mut patterns: Vec<String> = vec![];
 
@@ -123,34 +126,6 @@ fn reset(ctx: CallContext) -> Result<JsUndefined> {
   let aho: &mut AhoCorasick = ctx.env.unwrap(&this)?;
   aho.reset();
   ctx.env.get_undefined()
-}
-
-/// get the argument of either a buffer or an instance of AhoCorasick.
-fn get_arg<'env> (ctx: &'env CallContext) -> Result<&'env ArgType<'env>> {
-  let something = ctx.get::<JsUnknown>(0)?;
-
-  let arg_type = something.get_type();
-
-  if let Err(e) = arg_type {
-    return Err(e);
-  }
-
-  let object: JsObject;
-  unsafe {
-    object = something.cast::<JsObject>();
-  }
-
-  if object.is_buffer()? {
-    unsafe {
-      let buffer: JsBuffer = something.cast::<JsBuffer>();
-      return Ok(&ArgType::Buffer(buffer));
-    }
-  }
-
-  // this line will throw if the object is not an AhoCorasick instance.
-  let aho: &mut AhoCorasick = ctx.env.unwrap(&object)?;
-
-  Ok(&ArgType::Automaton(aho))
 }
 
 /// get_buffer tries to convert the first javascript argument as a buffer.
