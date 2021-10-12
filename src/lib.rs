@@ -13,10 +13,9 @@ use napi::{
   Status, JsTypeError, JsRangeError,
 };
 
+extern crate aho_corasick;
+use aho_corasick::AhoCorasick;
 
-mod aho;
-use aho::{AhoCorasick};
-use aho::aho_corasick::{automaton};
 
 #[cfg(all(
   any(windows, unix),
@@ -28,24 +27,26 @@ use aho::aho_corasick::{automaton};
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 
-enum ArgType {
+enum ArgType<'a> {
   Buffer(JsBuffer),
-  Automaton(Rc<aho::Automaton>)
+  Automaton(&'a mut AhoCorasick),
 }
 
+
+//fn get_arg<'env> (ctx: &'env CallContext) -> Result<&'env ArgType<'env>>
 /// JavaScript-callable constructor to create an Aho-Corasick machine
 #[js_function(1)]
-fn constructor(ctx: CallContext) -> Result<JsUndefined> {
+fn constructor<'env>(ctx: CallContext) -> Result<JsUndefined> {
   let mut this: JsObject = ctx.this_unchecked();
 
-  let arg = get_arg(&ctx)?;
+  let arg: ArgType = get_arg(&ctx)?;
 
   // if they passed an instance then it's a quick clone. or so the theory
   // goes.
-  if let ArgType::Automaton(auto) = arg {
-    let aho = AhoCorasick::new(auto, false);
-    ctx.env.wrap(&mut this, aho)?;
-    return ctx.env.get_undefined()
+  if let ArgType::Automaton(aho) = arg {
+    let clone = aho.clone();
+    ctx.env.wrap(&mut this, clone)?;
+    return ctx.env.get_undefined();
   }
 
   let pattern_buffer;
@@ -71,10 +72,9 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
     }
   }
 
-  let auto: Rc<aho::Automaton>;
-
-  match automaton::build_automaton(patterns) {
-    Ok(automaton) => auto = automaton,
+  let automaton: AhoCorasick;
+  match AhoCorasick::new(patterns, false) {
+    Ok(auto) => automaton = auto,
     Err(text) => {
       let e = napi::Error {status: Status::InvalidArg, reason: text};
       unsafe {
@@ -84,9 +84,7 @@ fn constructor(ctx: CallContext) -> Result<JsUndefined> {
     }
   }
 
-  let aho = AhoCorasick::new(auto, false);
-
-  ctx.env.wrap(&mut this, aho)?;
+  ctx.env.wrap(&mut this, automaton)?;
 
   ctx.env.get_undefined()
 }
@@ -127,7 +125,8 @@ fn reset(ctx: CallContext) -> Result<JsUndefined> {
   ctx.env.get_undefined()
 }
 
-fn get_arg(ctx: &CallContext) -> Result<ArgType> {
+/// get the argument of either a buffer or an instance of AhoCorasick.
+fn get_arg<'env> (ctx: &'env CallContext) -> Result<&'env ArgType<'env>> {
   let something = ctx.get::<JsUnknown>(0)?;
 
   let arg_type = something.get_type();
@@ -144,15 +143,14 @@ fn get_arg(ctx: &CallContext) -> Result<ArgType> {
   if object.is_buffer()? {
     unsafe {
       let buffer: JsBuffer = something.cast::<JsBuffer>();
-      return Ok(ArgType::Buffer(buffer));
+      return Ok(&ArgType::Buffer(buffer));
     }
   }
 
-  // this line should throw if the object is not an AhoCorasick instance.
+  // this line will throw if the object is not an AhoCorasick instance.
   let aho: &mut AhoCorasick = ctx.env.unwrap(&object)?;
-  let automaton: Rc<aho::Automaton> = Rc::clone(&aho.automaton);
 
-  Ok(ArgType::Automaton(automaton))
+  Ok(&ArgType::Automaton(aho))
 }
 
 /// get_buffer tries to convert the first javascript argument as a buffer.
